@@ -1,1 +1,2 @@
-# Rainbow with short rollouts, based on Dopamine and mrunner.
+# Rainbow with short rollouts experiments
+Based on Dopamine implementation of Rainbow and mrunner for computation
