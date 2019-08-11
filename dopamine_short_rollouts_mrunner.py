@@ -15,7 +15,8 @@ def default_rollout_sampler(steps, since_last_rollout, exponential_coefficient=0
     """ Default choice for rollout sampler used in RolloutsRunner
     :param steps: number of steps in the current episode
     :param since_last_rollout: number of steps since last rollout
-    :param exponential_coefficent:
+    :param exponential_coefficent: controls rate at which probability of chosing given state
+    increases.
     :return:
     """
     return 1 - exp(-since_last_rollout*exponential_coefficient)
@@ -36,7 +37,7 @@ class RolloutsRunner(Runner):
                  evaluation_steps=125000,
                  max_steps_per_episode=27000,
                  rollout_sampler=default_rollout_sampler,
-                 rollout_len=10,
+                 rollout_len=15,
                  logg = logger):
         """
         :param rollout_sampler: function which outputs probability that a given state will be chosen for rollout base
