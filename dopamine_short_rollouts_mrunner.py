@@ -1,3 +1,4 @@
+"""Implementation of Runner and Agent for Dopamine's Rainbow with short rollouts"""
 from dopamine.discrete_domains import atari_lib
 from dopamine.discrete_domains.run_experiment import Runner
 from dopamine.agents.rainbow.rainbow_agent import RainbowAgent
