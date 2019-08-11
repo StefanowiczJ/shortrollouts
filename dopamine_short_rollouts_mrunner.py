@@ -11,7 +11,7 @@ import gin
 
 
 @gin.configurable
-def default_rollout_sampler(steps, since_last_rollout, exponential_coefficient=0.01):
+def default_rollout_sampler(steps, since_last_rollout, exponential_coefficient=0.05):
     """ Default choice for rollout sampler used in RolloutsRunner
     :param steps: number of steps in the current episode
     :param since_last_rollout: number of steps since last rollout
@@ -36,17 +36,20 @@ class RolloutsRunner(Runner):
                  evaluation_steps=125000,
                  max_steps_per_episode=27000,
                  rollout_sampler=default_rollout_sampler,
-                 rollout_len=10):
+                 rollout_len=10,
+                 logg = logger):
         """
         :param rollout_sampler: function which outputs probability that a given state will be chosen for rollout base
         states. Takes number of steps in the current episode and steps since last rollout as arguments
         :param rollout_len: constant used as short rollouts maximal length
+        :param logg: function for logging: takes (metric,value) as arguments, defaults to mrunner's logger
         """
         super(RolloutsRunner, self).__init__(base_dir, create_agent_fn, create_environment_fn, checkpoint_file_prefix,
                                              logging_file_prefix, log_every_n, num_iterations, training_steps,
                                              evaluation_steps, max_steps_per_episode)
         self._rollout_sampler = rollout_sampler
         self._rollout_len = rollout_len
+        self.logger = logg
 
         self._global_steps = 0
         self._global_rollout_steps = 0
@@ -56,6 +59,10 @@ class RolloutsRunner(Runner):
         :param base_state:
         :return:
         """
+        # We change agent's mode to short rollout so that transitions will be stored
+        # and agent's train op will be run
+        self._agent.main_trajectory = False
+
         step_number = 0
         total_reward = 0
         # We have to switch epsilon settings to rollout
@@ -78,12 +85,17 @@ class RolloutsRunner(Runner):
 
             action = self._agent.step(reward, observation)
 
+        # We switch agent's settings back to main trajectory mode:
+        self._agent.main_trajectory = True
+
         return step_number, total_reward
 
     def _run_one_episode(self):
         """Runs one episode of environment and short rollouts collected during that episode
         :return:
         """
+        assert self._agent.main_trajectory
+
         step_number = 0
         total_reward = 0
         base_states = []
@@ -136,24 +148,21 @@ class RolloutsRunner(Runner):
             rollout_steps += steps
             rollout_rewards += reward
 
-        logger('episode reward',total_reward)
-        logger('rollout steps per episode',rollout_steps)
-        logger('rollouts per episode',len(base_states))
+        if not self._agent.eval_mode:
+            self.logger('episode reward', total_reward)
+            self.logger('rollout steps per episode', rollout_steps)
+            self.logger('rollouts per episode', len(base_states))
+            self._global_steps += step_number
+            self._global_rollout_steps += rollout_steps
+            self.logger('main steps up to episode', self._global_steps)
+            self.logger('rollout steps up to episode', self._global_rollout_steps)
 
-        self._global_steps += step_number
-        self._global_rollout_steps += rollout_steps
-
-        logger('main steps up to episode',self._global_steps)
-        logger('rollout steps up to episode',self._global_rollout_steps)
-
+        else:
+            self.logger('eval episode reward', total_reward)
+            self.logger('main steps up to eval episode', self._global_steps)
+            self.logger('rollout steps up to eval episode', self._global_rollout_steps)
 
         return step_number, total_reward
-
-    def _run_train_phase(self, statistics):
-        num_episodes, average_return = super()._run_train_phase(statistics)
-        logger('average returns in phase',average_return)
-        logger('episodes in phase',num_episodes)
-        return num_episodes,average_return
 
 
 @gin.configurable
@@ -180,7 +189,7 @@ class RainbowRolloutsAgent(RainbowAgent):
                  epsilon_decay_period=250000,
                  epsilon_rollout_fn=dqn_agent.linearly_decaying_epsilon,
                  epsilon_rollout_train=0.1,
-                 epsilon_rollout_decay_period=250000,
+                 epsilon_rollout_decay_period=10**6,
                  replay_scheme='prioritized',
                  tf_device='/cpu:*',
                  use_staging=True,
@@ -203,6 +212,9 @@ class RainbowRolloutsAgent(RainbowAgent):
         self._epsilon_main_decay_period = epsilon_decay_period
         self._epsilon_rollout_decay_period = epsilon_rollout_decay_period
 
+        # This will indicate whether we are in main trajectory
+        self.main_trajectory = True
+
     def switch_epsilon_settings(self,main=True):
         """Switches epsilon settings to main if main=True and to rollout otherwise
         :return:
@@ -215,6 +227,26 @@ class RainbowRolloutsAgent(RainbowAgent):
             self.epsilon_fn = self._epsilon_rollout_fn
             self.epsilon_train = self._epsilon_rollout_train
             self.epsilon_decay_period = self._epsilon_rollout_decay_period
+
+    def step(self, reward, observation):
+        """Records the most recent transition and returns the agent's next action.
+        We store the observation of the last time step since we want to store it
+        with the reward.
+        Args:
+          reward: float, the reward received from the agent's most recent action.
+          observation: numpy array, the most recent observation.
+        Returns:
+          int, the selected action.
+        """
+        self._last_observation = self._observation
+        self._record_observation(observation)
+
+        if not self.eval_mode and not self.main_trajectory:
+            self._store_transition(self._last_observation, self.action, reward, False)
+            self._train_step()
+
+        self.action = self._select_action()
+        return self.action
 
 
 def create_rainbow_rollouts_agent(sess, environment, summary_writer=None):
@@ -230,6 +262,7 @@ def main():
     params = get_configuration(print_diagnostics=True, with_neptune=True, inject_parameters_to_gin=True)
     runner = RolloutsRunner(params.LOG_PATH,create_rainbow_rollouts_agent)
     runner.run_experiment()
+
 
 if __name__ == '__main__':
     main()
