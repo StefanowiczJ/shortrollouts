@@ -9,6 +9,7 @@ from math import exp
 import tensorflow as tf
 import numpy as np
 import gin
+import os
 
 
 @gin.configurable
@@ -38,7 +39,7 @@ class RolloutsRunner(Runner):
                  evaluation_steps=125000,
                  max_steps_per_episode=27000,
                  rollout_sampler=default_rollout_sampler,
-                 rollout_len=15,
+                 rollout_len=20,
                  logg = logger):
         """
         :param rollout_sampler: function which outputs probability that a given state will be chosen for rollout base
@@ -199,10 +200,10 @@ class RainbowRolloutsAgent(RainbowAgent):
                  summary_writer=None,
                  summary_writing_frequency=500,
                  ):
-        super().__init__(sess,num_actions,observation_shape,observation_dtype,stack_size,network,num_atoms,vmax,
-                         gamma,update_horizon,min_replay_history,update_period,target_update_period,epsilon_fn,
-                         epsilon_train,epsilon_eval,epsilon_decay_period,replay_scheme,tf_device,use_staging,
-                         optimizer,summary_writer,summary_writing_frequency)
+        super().__init__(sess,num_actions,observation_shape, observation_dtype, stack_size, network, num_atoms, vmax,
+                         gamma, update_horizon, min_replay_history, update_period, target_update_period, epsilon_fn,
+                         epsilon_train, epsilon_eval, epsilon_decay_period, replay_scheme, tf_device, use_staging,
+                         optimizer, summary_writer, summary_writing_frequency)
 
         # We make epsilon_train and epsilon_fn state-dependent:
         # They will take on different values in main rollout and branch when switched by self.switch_epsilons_settings
@@ -258,11 +259,17 @@ def create_rainbow_rollouts_agent(sess, environment, summary_writer=None):
 
 def main():
     """Follows example from mrunner experiment_gin.py
-    Requires LOG_PATH to be passed in config
+    Requires BASE_PATH and GAME to be passed in config
     :return:
     """
     params = get_configuration(print_diagnostics=True, with_neptune=True, inject_parameters_to_gin=True)
-    runner = RolloutsRunner(params.LOG_PATH,create_rainbow_rollouts_agent)
+    LOG_PATH = os.path.join(params.BASE_PATH, 'tests', params.GAME,
+                            params.dopamine_short_rollouts.default_rollout_sampler.exponential_coefficient,
+                            params.dopamine_short_rollouts.RolloutsRunner.rollout_len,
+                            params.dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_decay_period,
+                            params.dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_rollout_train,
+                            params.dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_rollout_decay_period)
+    runner = RolloutsRunner(LOG_PATH,create_rainbow_rollouts_agent)
     runner.run_experiment()
 
 
