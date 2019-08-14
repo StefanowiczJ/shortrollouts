@@ -10,6 +10,7 @@ import tensorflow as tf
 import numpy as np
 import gin
 import os
+import pickle
 
 
 @gin.configurable
@@ -57,6 +58,34 @@ class RolloutsRunner(Runner):
         self._global_steps = 0
         self._global_rollout_steps = 0
 
+    def _save_base_state(self, base_state, pickle_filename):
+        """Saves base state to pickle file of name passed as pickle_filename
+        :param base_state:
+        :param pickle_filename:
+        :return:
+        """
+        _file = open(pickle_filename,"wb")
+        pickle.dump(base_state,_file)
+        _file.close()
+
+    def _handle_base_state(self, base_state, base_states_filenames):
+        """Handles base state: dumps it to pickle and saves its name
+        to base_state_filenames. Warning: this method deletes base_state
+        :param base_state:
+        :param base_states_filenames:
+        :return:
+        """
+        filename = "%s/basestate_%s.pickle" %(self._base_dir, len(base_states_filenames))
+        self._save_base_state(base_state,filename)
+        del(base_state)
+        base_states_filenames.append(filename)
+
+    def _load_base_state(self, pickle_filename):
+        _file = open(pickle_filename,"rb")
+        loaded = pickle.load(_file)
+        _file.close()
+        return loaded
+
     def _run_short_rollout(self, base_state):
         """Runs short rollout using environment, starting from base state
         :param base_state:
@@ -93,18 +122,23 @@ class RolloutsRunner(Runner):
 
         return step_number, total_reward
 
-    def _run_one_episode(self):
-        """Runs one episode of environment and short rollouts collected during that episode
+    def _run_one_episode(self, save_to_pickle=True):
+        """Runs one episode of environment and short rollouts collected during that episode.
+        If save to pickle is set to True, collected base states will be saved to pickle files instead of RAM.
         :return:
         """
         assert self._agent.main_trajectory
 
         step_number = 0
         total_reward = 0
-        base_states = []
         since_last_rollout = 0
         rollout_steps = 0
         rollout_rewards = 0
+
+        if save_to_pickle:
+            base_states_filenames = []
+        else:
+            base_states = []
 
         # We have to switch epsilon settings to main
         self._agent.switch_epsilon_settings()
@@ -137,8 +171,13 @@ class RolloutsRunner(Runner):
                     prob = self._rollout_sampler(step_number, since_last_rollout)
                     if prob >= np.random.random():
                         rollout_len = self._rollout_len
-                        base_states.append((self._environment.environment.unwrapped.clone_full_state(),
-                                            observation, rollout_len))
+                        base_state_tuple = (self._environment.environment.unwrapped.clone_full_state(),
+                                                observation, rollout_len)
+                        # Store base state tuple with method of choice (RAM/Pickle file)
+                        if save_to_pickle:
+                            self._handle_base_state(base_state_tuple,base_states_filenames)
+                        else:
+                            base_states.append(base_state_tuple)
                         since_last_rollout = 0
 
                     else:
@@ -146,10 +185,19 @@ class RolloutsRunner(Runner):
 
         self._end_episode(reward)
         # For every base state we create short rollout
-        for base_state in base_states:
-            steps, reward = self._run_short_rollout(base_state)
-            rollout_steps += steps
-            rollout_rewards += reward
+        if save_to_pickle:
+            for base_states_filename in base_states_filenames:
+                base_state = self._load_base_state(pickle_filename=base_states_filename)
+                steps, reward = self._run_short_rollout(base_state)
+                rollout_steps += steps
+                rollout_rewards += reward
+                # We remove file with base state which we have just used
+                os.remove(base_states_filename)
+        else:
+            for base_state in base_states:
+                steps, reward = self._run_short_rollout(base_state)
+                rollout_steps += steps
+                rollout_rewards += reward
 
         if not self._agent.eval_mode:
             self.logger('episode reward', total_reward)
@@ -263,12 +311,7 @@ def main():
     :return:
     """
     params = get_configuration(print_diagnostics=True, with_neptune=True, inject_parameters_to_gin=True)
-    LOG_PATH = os.path.join(params.BASE_PATH, 'tests', params.GAME,
-                            params.dopamine_short_rollouts.default_rollout_sampler.exponential_coefficient,
-                            params.dopamine_short_rollouts.RolloutsRunner.rollout_len,
-                            params.dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_decay_period,
-                            params.dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_rollout_train,
-                            params.dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_rollout_decay_period)
+    LOG_PATH = os.path.join(params.BASE_PATH, 'tests', params.GAME)
     runner = RolloutsRunner(LOG_PATH,create_rainbow_rollouts_agent)
     runner.run_experiment()
 
