@@ -8,19 +8,20 @@ if "NEPTUNE_API_TOKEN" not in os.environ or "PROJECT_QUALIFIED_NAME" not in os.e
 
 base_config = {
     'atari_lib.create_atari_environment.sticky_actions': True,
-    'BASE_PATH': '.'
-}
-params_grid = {
-    'GAME': ['Asterix', 'Breakout', 'Pong'],
-    'dopamine_short_rollouts.default_rollout_sampler.exponential_coefficient': [0.1, 0.05],
-    'dopamine_short_rollouts.RolloutsRunner.rollout_len': [20, 10],
-    'dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_train': [0.05, 0.01],
-    'dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_decay_period': [10**6, 250000],
-    'dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_rollout_train': [0.1, 0.01],
-    'dopamine_short_rollouts.RaibowRolloutsAgent.epsilon_rollout_decay_period': [10**6, 250000]
+    'atari_lib.create_atari_environment.game_name': 'Breakout',
+    'BASE_PATH': '.',
+    'GAME': 'Breakout',
+    'RainbowRolloutsAgent.epsilon_decay_period': 25000,
+    'RainbowRolloutsAgent.epsilon_rollout_decay_period': 5000000
 }
 
-experiments_list = create_experiments_helper(experiment_name='Gin experiment',
+params_grid = {
+    'default_rollout_sampler.exponential_coefficient': [0.1,],
+    'RolloutsRunner.rollout_len': [20,],
+    'RainbowRolloutsAgent.epsilon_train': [0.05,],
+    'RainbowRolloutsAgent.epsilon_rollout_train': [0.2,]
+}
+experiments_list = create_experiments_helper(experiment_name='Rainbow-short-rollouts',
                                             project_name=os.environ["PROJECT_QUALIFIED_NAME"],
                                             script='python dopamine_short_rollouts_mrunner.py',
                                             python_path='.', paths_to_dump='',
