@@ -41,12 +41,14 @@ class RolloutsRunner(Runner):
                  max_steps_per_episode=27000,
                  rollout_sampler=default_rollout_sampler,
                  rollout_len=20,
-                 logg = logger):
+                 logg = logger,
+                 train_on_main = False):
         """
         :param rollout_sampler: function which outputs probability that a given state will be chosen for rollout base
         states. Takes number of steps in the current episode and steps since last rollout as arguments
         :param rollout_len: constant used as short rollouts maximal length
         :param logg: function for logging: takes (metric,value) as arguments, defaults to mrunner's logger
+        :param train_on_main: indicates whether to include transitions from main trajectory in replay buffer
         """
         super(RolloutsRunner, self).__init__(base_dir, create_agent_fn, create_environment_fn, checkpoint_file_prefix,
                                              logging_file_prefix, log_every_n, num_iterations, training_steps,
@@ -54,6 +56,7 @@ class RolloutsRunner(Runner):
         self._rollout_sampler = rollout_sampler
         self._rollout_len = rollout_len
         self.logger = logg
+        self.train_on_main = train_on_main
 
         self._global_steps = 0
         self._global_rollout_steps = 0
@@ -127,7 +130,9 @@ class RolloutsRunner(Runner):
         If save to pickle is set to True, collected base states will be saved to pickle files instead of RAM.
         :return:
         """
-        assert self._agent.main_trajectory
+        # If we train also on main we have to disable main_trajectory flag:
+        if self.train_on_main:
+            self._agent.main_trajectory = False
 
         step_number = 0
         total_reward = 0
@@ -135,10 +140,9 @@ class RolloutsRunner(Runner):
         rollout_steps = 0
         rollout_rewards = 0
 
-        if save_to_pickle:
-            base_states_filenames = []
-        else:
-            base_states = []
+        # We initialize lists for both saving options (pickle/local)
+        base_states_filenames = []
+        base_states = []
 
         # We have to switch epsilon settings to main
         self._agent.switch_epsilon_settings()
@@ -202,7 +206,7 @@ class RolloutsRunner(Runner):
         if not self._agent.eval_mode:
             self.logger('episode reward', total_reward)
             self.logger('rollout steps per episode', rollout_steps)
-            self.logger('rollouts per episode', len(base_states))
+            self.logger('rollouts per episode', len(base_states)+len(base_states_filenames))
             self._global_steps += step_number
             self._global_rollout_steps += rollout_steps
             self.logger('main steps up to episode', self._global_steps)
